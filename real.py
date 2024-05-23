@@ -1,86 +1,71 @@
 import streamlit as st
 import speech_recognition as sr
-from googletrans import Translator
 from gtts import gTTS
-import os
+from googletrans import Translator
 
-# Initialize recognizer and translator
-recognizer = sr.Recognizer()
-translator = Translator()
 
-# Supported languages
-languages = {
-    "English": "en",
-    "Spanish": "es",
-    "French": "fr",
-    "German": "de",
-    "Chinese (Simplified)": "zh-cn",
-    "Chinese (Traditional)": "zh-tw",
-    "Hindi": "hi",
-    "Bengali": "bn",
-    "Marathi": "mr",
-    "Telugu": "te",
-    "Tamil": "ta",
-    "Gujarati": "gu",
-    "Kannada": "kn",
-    "Malayalam": "ml",
-    "Punjabi": "pa",
-    "Urdu": "ur"
-}
+def recognize_speech_from_mic(recognizer, microphone):
+    """Transcribe speech from recorded from `microphone`."""
+    if not isinstance(recognizer, sr.Recognizer):
+        raise TypeError("`recognizer` must be `Recognizer` instance")
 
-# Streamlit app layout
-st.title("Speech-to-Speech Translation")
-st.write("Select the source and target languages, then speak or type to translate.")
+    if not isinstance(microphone, sr.Microphone):
+        raise TypeError("`microphone` must be `Microphone` instance")
 
-src_lang = st.selectbox("Source Language", list(languages.keys()))
-target_lang = st.selectbox("Target Language", list(languages.keys()))
+    with microphone as source:
+        recognizer.adjust_for_ambient_noise(source)
+        audio = recognizer.listen(source)
 
-# Radio buttons to choose input method
-input_method = st.radio("Choose input method:", ("Microphone", "Text Input"))
+    response = {"success": True, "error": None, "transcription": None}
 
-if input_method == "Microphone":
-    if st.button("Start Translation with Microphone"):
-        st.write("Please speak into your microphone...")
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source)
-            audio = recognizer.listen(source)
+    try:
+        response["transcription"] = recognizer.recognize_google(audio)
+    except sr.RequestError:
+        response["success"] = False
+        response["error"] = "API unavailable"
+    except sr.UnknownValueError:
+        response["error"] = "Unable to recognize speech"
 
-        try:
-            text = recognizer.recognize_google(audio, language=languages[src_lang])
-            st.write(f"Recognized Text: {text}")
+    return response
 
-            translated = translator.translate(text, src=languages[src_lang], dest=languages[target_lang])
-            translated_text = translated.text
-            st.write(f"Translated Text: {translated_text}")
 
-            tts = gTTS(text=translated_text, lang=languages[target_lang])
-            audio_file = "translated_audio.mp3"
-            tts.save(audio_file)
+def translate_text(text, target_lang):
+    translator = Translator()
+    translation = translator.translate(text, dest=target_lang)
+    return translation.text
 
-            st.audio(audio_file, format='audio/mp3')
 
-            os.remove(audio_file)
-        except sr.UnknownValueError:
-            st.write("Google Speech Recognition could not understand the audio")
-        except sr.RequestError as e:
-            st.write(f"Could not request results from Google Speech Recognition service; {e}")
-        except Exception as e:
-            st.write(f"An error occurred: {e}")
+def text_to_speech(text, lang):
+    tts = gTTS(text=text, lang=lang)
+    tts.save("output.mp3")
 
-elif input_method == "Text Input":
-    text_input = st.text_area("Enter text to translate")
-    if st.button("Translate Text"):
-        try:
-            translated = translator.translate(text_input, src=languages[src_lang], dest=languages[target_lang])
-            translated_text = translated.text
-            st.write(f"Translated Text: {translated_text}")
 
-            tts = gTTS(text=translated_text, lang=languages[target_lang])
-            audio_file = "translated_audio.mp3"
-            tts.save(audio_file)
+def main():
+    st.title("Speech-to-Speech Translation")
 
-            st.audio(audio_file, format='audio/mp3')
+    st.write("Select the source language and target language.")
+    source_lang = st.selectbox("Source Language", ["en", "es", "fr", "de", "zh-cn"])
+    target_lang = st.selectbox("Target Language", ["en", "es", "fr", "de", "zh-cn"])
 
-            os.remove(audio_file)
-        except Exception as e:
-            st.write(f"An error occurred: {e}")
+    if st.button("Start Recording"):
+        recognizer = sr.Recognizer()
+        microphone = sr.Microphone()
+
+        st.write("Recording...")
+
+        result = recognize_speech_from_mic(recognizer, microphone)
+        if result["transcription"]:
+            st.write("You said: {}".format(result["transcription"]))
+
+            translated_text = translate_text(result["transcription"], target_lang)
+            st.write("Translated text: {}".format(translated_text))
+
+            text_to_speech(translated_text, target_lang)
+            st.audio("output.mp3")
+        else:
+            if result["error"]:
+                st.write("ERROR: {}".format(result["error"]))
+
+
+if __name__ == "__main__":
+    main()
